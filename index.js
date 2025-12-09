@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Client } = require('whatsapp-web.js');
 const qrcodeTerminal = require('qrcode-terminal');
 const qrcode = require('qrcode');
-const axios = require('axios');
+const { OpenRouter } = require('@openrouter/sdk');
 const fs = require('fs');
 const express = require('express');
 const cron = require('node-cron');
@@ -202,30 +202,54 @@ client.on('message', async (msg) => {
       if (!apiKey) {
         throw new Error('OPENROUTER_API_KEY environment variable is not set');
       }
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'qwen/qwen3-coder:free',
-        messages: history
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
+      
+      // Initialize OpenRouter SDK
+      const openrouter = new OpenRouter({
+        apiKey: apiKey
       });
-      const reply = response.data.choices[0].message.content;
-      console.log('AI response:', reply);
+
+      // Send request with streaming
+      const stream = await openrouter.chat.send({
+        model: 'qwen/qwen3-coder:free',
+        messages: history,
+        stream: true
+      });
+
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          fullResponse += content;
+        }
+      }
+
+      console.log('AI response:', fullResponse);
 
       // Add AI response to history
-      history.push({ role: 'assistant', content: reply });
+      history.push({ role: 'assistant', content: fullResponse });
 
       // Limit again
       if (history.length > MAX_HISTORY) {
         history.shift();
       }
 
-      msg.reply(reply);
+      msg.reply(fullResponse);
     } catch (error) {
       console.error('Error with AI response:', error);
-      msg.reply('❌ Maaf, terjadi error saat memproses pesan anda.');
+      
+      // Check if it's an API authentication error
+      if (error.response && error.response.status === 401) {
+        console.error('API Key error:', error.response.data);
+        msg.reply('❌ API Key tidak valid atau expired. Silakan cek konfigurasi OPENROUTER_API_KEY.');
+      } else if (error.response && error.response.status === 429) {
+        msg.reply('❌ Terlalu banyak request. Tunggu beberapa saat dan coba lagi.');
+      } else if (error.response) {
+        msg.reply(`❌ Error dari AI server (${error.response.status}). Coba lagi nanti.`);
+      } else if (error.status === 401) {
+        msg.reply('❌ API Key tidak valid atau expired. Silakan cek konfigurasi OPENROUTER_API_KEY.');
+      } else {
+        msg.reply('❌ Maaf, terjadi error saat memproses pesan anda.');
+      }
     }
     return;
   }
