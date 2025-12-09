@@ -237,16 +237,16 @@ client.on('message', async (msg) => {
     } catch (error) {
       console.error('Error with AI response:', error);
       
-      // Check if it's an API authentication error
-      if (error.response && error.response.status === 401) {
-        console.error('API Key error:', error.response.data);
-        msg.reply('❌ API Key tidak valid atau expired. Silakan cek konfigurasi OPENROUTER_API_KEY.');
-      } else if (error.response && error.response.status === 429) {
+      // Check error type for better error messages
+      if (error.statusCode === 401 || error.status === 401) {
+        console.error('API authentication error:', error.body || error.message);
+        msg.reply('❌ *API Key Error*\n\nAPI key tidak valid atau akun OpenRouter belum disetup.\n\n*Cara memperbaiki:*\n1. Buka https://openrouter.ai/keys\n2. Buat API key baru\n3. Update environment variable OPENROUTER_API_KEY di Render.com\n4. Restart service');
+      } else if (error.statusCode === 429 || error.status === 429) {
         msg.reply('❌ Terlalu banyak request. Tunggu beberapa saat dan coba lagi.');
-      } else if (error.response) {
-        msg.reply(`❌ Error dari AI server (${error.response.status}). Coba lagi nanti.`);
-      } else if (error.status === 401) {
-        msg.reply('❌ API Key tidak valid atau expired. Silakan cek konfigurasi OPENROUTER_API_KEY.');
+      } else if (error.statusCode === 402) {
+        msg.reply('❌ Kredit OpenRouter habis. Silakan top-up di https://openrouter.ai/credits');
+      } else if (error.statusCode || error.status) {
+        msg.reply(`❌ Error dari AI server (${error.statusCode || error.status}). Coba lagi nanti.`);
       } else {
         msg.reply('❌ Maaf, terjadi error saat memproses pesan anda.');
       }
