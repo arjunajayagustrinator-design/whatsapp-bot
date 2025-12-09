@@ -205,7 +205,7 @@ client.on('message', async (msg) => {
       
       // Use OpenRouter API with proper headers and timeout
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'qwen/qwen3-coder:free',
+        model: 'openai/gpt-3.5-turbo',
         messages: history
       }, {
         headers: {
