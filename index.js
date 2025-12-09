@@ -203,7 +203,7 @@ client.on('message', async (msg) => {
         throw new Error('OPENROUTER_API_KEY environment variable is not set');
       }
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'openai/gpt-3.5-turbo',
+        model: 'qwen/qwen3-coder:free',
         messages: history
       }, {
         headers: {
