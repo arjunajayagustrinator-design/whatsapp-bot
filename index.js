@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Client } = require('whatsapp-web.js');
 const qrcodeTerminal = require('qrcode-terminal');
 const qrcode = require('qrcode');
-const { OpenRouter } = require('@openrouter/sdk');
+const axios = require('axios');
 const fs = require('fs');
 const express = require('express');
 const cron = require('node-cron');
@@ -203,26 +203,20 @@ client.on('message', async (msg) => {
         throw new Error('OPENROUTER_API_KEY environment variable is not set');
       }
       
-      // Initialize OpenRouter SDK
-      const openrouter = new OpenRouter({
-        apiKey: apiKey
-      });
-
-      // Send request with streaming
-      const stream = await openrouter.chat.send({
+      // Use OpenRouter API with proper headers
+      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
         model: 'qwen/qwen3-coder:free',
-        messages: history,
-        stream: true
+        messages: history
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/arjunajayagustrinator-design/whatsapp-bot',
+          'X-Title': 'WhatsApp Bot'
+        }
       });
 
-      let fullResponse = '';
-      for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content;
-        if (content) {
-          fullResponse += content;
-        }
-      }
-
+      const fullResponse = response.data.choices[0].message.content;
       console.log('AI response:', fullResponse);
 
       // Add AI response to history
@@ -238,15 +232,16 @@ client.on('message', async (msg) => {
       console.error('Error with AI response:', error);
       
       // Check error type for better error messages
-      if (error.statusCode === 401 || error.status === 401) {
-        console.error('API authentication error:', error.body || error.message);
-        msg.reply('❌ *API Key Error*\n\nAPI key tidak valid atau akun OpenRouter belum disetup.\n\n*Cara memperbaiki:*\n1. Buka https://openrouter.ai/keys\n2. Buat API key baru\n3. Update environment variable OPENROUTER_API_KEY di Render.com\n4. Restart service');
-      } else if (error.statusCode === 429 || error.status === 429) {
+      if (error.response && error.response.status === 401) {
+        console.error('API authentication error:', error.response.data);
+        msg.reply('❌ *API Key Error*\n\nAPI key tidak valid atau akun OpenRouter bermasalah.\n\n*Cara memperbaiki:*\n1. Buka https://console.groq.com/keys (Groq GRATIS)\n2. Atau https://openrouter.ai/keys\n3. Buat API key baru\n4. Update OPENROUTER_API_KEY di Render.com\n5. Restart service');
+      } else if (error.response && error.response.status === 429) {
         msg.reply('❌ Terlalu banyak request. Tunggu beberapa saat dan coba lagi.');
-      } else if (error.statusCode === 402) {
-        msg.reply('❌ Kredit OpenRouter habis. Silakan top-up di https://openrouter.ai/credits');
-      } else if (error.statusCode || error.status) {
-        msg.reply(`❌ Error dari AI server (${error.statusCode || error.status}). Coba lagi nanti.`);
+      } else if (error.response && error.response.status === 402) {
+        msg.reply('❌ Kredit API habis.');
+      } else if (error.response) {
+        console.error('API Error:', error.response.data);
+        msg.reply(`❌ Error dari AI server (${error.response.status}). Coba lagi nanti.`);
       } else {
         msg.reply('❌ Maaf, terjadi error saat memproses pesan anda.');
       }
