@@ -203,7 +203,7 @@ client.on('message', async (msg) => {
         throw new Error('OPENROUTER_API_KEY environment variable is not set');
       }
       
-      // Use OpenRouter API with proper headers
+      // Use OpenRouter API with proper headers and timeout
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
         model: 'qwen/qwen3-coder:free',
         messages: history
@@ -213,7 +213,8 @@ client.on('message', async (msg) => {
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://github.com/arjunajayagustrinator-design/whatsapp-bot',
           'X-Title': 'WhatsApp Bot'
-        }
+        },
+        timeout: 60000 // 60 seconds timeout
       });
 
       const fullResponse = response.data.choices[0].message.content;
@@ -236,7 +237,8 @@ client.on('message', async (msg) => {
         console.error('API authentication error:', error.response.data);
         msg.reply('❌ *API Key Error*\n\nAPI key tidak valid atau akun OpenRouter bermasalah.\n\n*Cara memperbaiki:*\n1. Buka https://console.groq.com/keys (Groq GRATIS)\n2. Atau https://openrouter.ai/keys\n3. Buat API key baru\n4. Update OPENROUTER_API_KEY di Render.com\n5. Restart service');
       } else if (error.response && error.response.status === 429) {
-        msg.reply('❌ Terlalu banyak request. Tunggu beberapa saat dan coba lagi.');
+        console.error('Rate limit error:', error.response.data);
+        msg.reply('❌ *Rate Limit*\n\nTerlalu banyak request ke model ini. Model gratis qwen/qwen3-coder:free sedang overload.\n\n*Solusi:*\n1. Tunggu 1-2 menit\n2. Atau gunakan API Groq (lebih stabil): https://console.groq.com/keys');
       } else if (error.response && error.response.status === 402) {
         msg.reply('❌ Kredit API habis.');
       } else if (error.response) {
