@@ -90,10 +90,85 @@ client.on('auth_failure', (msg) => {
   }, 5000);
 });
 
+// Menu command response
+const showMenu = async (msg) => {
+  const menuText = `
+╔════════════════════════════════════╗
+║     🤖 WHATSAPP BOT MENU 🤖      ║
+╚════════════════════════════════════╝
+
+📋 *DAFTAR PERINTAH:*
+
+🔤 *Perintah AI Chat*
+• \`.\` + pertanyaan → Tanya ke AI
+  Contoh: \`.apa itu Python?\`
+
+🎨 *Perintah Stiker*
+• \`/sticker\` → Buat stiker dari gambar
+  (balas gambar dengan /sticker)
+
+👥 *Perintah Grup*
+• \`/tagall [pesan]\` → Tag semua member
+  (Hanya untuk admin/owner)
+
+ℹ️ *Informasi*
+• \`/menu\` → Tampilkan menu ini
+• \`/info\` → Info tentang bot
+
+════════════════════════════════════
+💡 *Tips:* Gunakan perintah di atas untuk
+   menggunakan fitur bot dengan maksimal!
+════════════════════════════════════
+  `;
+  msg.reply(menuText);
+};
+
+// Info command response
+const showInfo = async (msg) => {
+  const infoText = `
+╔════════════════════════════════════╗
+║      ℹ️  TENTANG BOT ℹ️           ║
+╚════════════════════════════════════╝
+
+🤖 *WhatsApp Bot v1.0*
+
+✨ *Fitur Utama:*
+✓ Chat dengan AI powered by GPT-3.5
+✓ Buat stiker dari gambar
+✓ Tag semua member di grup
+✓ Responsive & modern interface
+
+⚙️ *Teknologi:*
+• Whatsapp-web.js
+• OpenRouter API
+• Node.js
+
+📧 *Butuh bantuan?*
+Ketik \`/menu\` untuk melihat daftar perintah!
+
+════════════════════════════════════
+Made with ❤️ for WhatsApp users
+════════════════════════════════════
+  `;
+  msg.reply(infoText);
+};
+
 client.on('message', async (msg) => {
   console.log(`Received message from ${msg.from}: ${msg.body || 'media'}`);
   // Ignore messages from the bot itself
   if (msg.from === client.info.wid._serialized) return;
+
+  // Handle menu command
+  if (msg.body === '/menu') {
+    await showMenu(msg);
+    return;
+  }
+
+  // Handle info command
+  if (msg.body === '/info') {
+    await showInfo(msg);
+    return;
+  }
 
   // Handle AI responses only if message starts with '.'
   if (msg.body && msg.body.startsWith('.')) {
@@ -146,25 +221,27 @@ client.on('message', async (msg) => {
       msg.reply('Sorry, I encountered an error processing your message.');
     }
   }
-  // Handle sticker creation only if message is '.sticker' and has quoted message
-  else if (msg.body === '!sticker' && msg.hasQuotedMsg) {
+  // Handle sticker creation only if message is '/sticker' and has quoted message
+  else if (msg.body === '/sticker' && msg.hasQuotedMsg) {
     try {
       const quotedMsg = await msg.getQuotedMessage();
       if (quotedMsg.hasMedia) {
         const media = await quotedMsg.downloadMedia();
         if (media.mimetype.startsWith('image/')) {
           console.log('Creating sticker from quoted image...');
+          msg.reply('⏳ Sedang membuat stiker...');
           await client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
           console.log('Sticker sent.');
+          msg.reply('✅ Stiker berhasil dibuat! 🎨');
         } else {
-          msg.reply('Quoted message is not an image.');
+          msg.reply('❌ Pesan yang dikutip bukan gambar. Silakan balas gambar dengan /sticker');
         }
       } else {
-        msg.reply('Quoted message does not contain media.');
+        msg.reply('❌ Pesan yang dikutip tidak mengandung media.');
       }
     } catch (error) {
       console.error('Error creating sticker:', error);
-      msg.reply('Sorry, I encountered an error creating the sticker.');
+      msg.reply('❌ Maaf, terjadi kesalahan saat membuat stiker.');
     }
   }
   // Tag all members in a group: usage '/tagall [optional message]'
@@ -172,43 +249,57 @@ client.on('message', async (msg) => {
     try {
       const chat = await msg.getChat();
       if (!chat.isGroup) {
-        msg.reply('Perintah ini hanya bisa digunakan di grup.');
+        msg.reply('❌ Perintah ini hanya bisa digunakan di grup.');
         return;
       }
 
-      // Cek admin: WhatsApp sometimes uses participant.isAdmin, sometimes participant.isSuperAdmin, and sometimes only one is true for owner
-      const authorId = msg.author || msg.from; // in groups, msg.author exists
-      const participant = chat.participants.find(p => p.id._serialized === authorId);
+      // Cek admin - gunakan msg.from untuk mencari participant
+      const authorId = msg.from;
+      const senderParticipant = chat.participants.find(p => p.id._serialized === authorId);
+      
+      console.log('Author ID:', authorId);
+      console.log('Sender Participant:', senderParticipant);
+      console.log('Is Admin:', senderParticipant?.isAdmin);
+      console.log('Is Super Admin:', senderParticipant?.isSuperAdmin);
+      
       let isAdmin = false;
-      if (participant) {
-        // WhatsApp-web.js: isAdmin true for admin, isSuperAdmin true for owner
-        isAdmin = Boolean(participant.isAdmin) || Boolean(participant.isSuperAdmin);
+      if (senderParticipant) {
+        isAdmin = senderParticipant.isAdmin === true || senderParticipant.isSuperAdmin === true;
       }
+      
       if (!isAdmin) {
-        msg.reply('Hanya admin atau owner grup yang dapat menggunakan perintah ini.');
+        msg.reply('❌ Hanya admin atau owner grup yang dapat menggunakan perintah ini.');
         return;
       }
 
       const parts = msg.body.split(' ');
-      const text = parts.slice(1).join(' ') || 'Hai semua!';
+      const text = parts.slice(1).join(' ') || '👋 Halo semua member!';
 
-      // Build mentions list
+      // Build mentions list - gunakan participant langsung tanpa getContactById
       const mentions = [];
-      for (const p of chat.participants) {
+      for (const participant of chat.participants) {
         try {
-          const contact = await client.getContactById(p.id._serialized);
+          const contact = await client.getContactById(participant.id._serialized);
           mentions.push(contact);
         } catch (err) {
-          console.warn('Gagal mengambil kontak untuk', p.id._serialized, err);
+          console.warn('Gagal mengambil kontak untuk', participant.id._serialized, ':', err.message);
+          // Fallback: tambahkan participant ID langsung
+          mentions.push(participant.id._serialized);
         }
       }
 
-      await chat.sendMessage(text, { mentions });
-      msg.reply(`Berhasil menandai ${mentions.length} anggota grup.`);
+      const finalMessage = `📢 *PENGUMUMAN:*\n\n${text}`;
+      await chat.sendMessage(finalMessage, { mentions });
+      msg.reply(`✅ Berhasil menandai ${mentions.length} anggota grup! 👥`);
+      console.log('Tagall command executed successfully for', mentions.length, 'members');
     } catch (err) {
       console.error('Error running tagall:', err);
-      msg.reply('Terjadi kesalahan saat menandai semua anggota.');
+      msg.reply('❌ Terjadi kesalahan saat menandai semua anggota: ' + err.message);
     }
+  }
+  // Show error for unknown commands
+  else if (msg.body && msg.body.startsWith('/')) {
+    msg.reply('❌ Perintah tidak dikenal. Ketik `/menu` untuk melihat daftar perintah yang tersedia.');
   }
   // Ignore other messages
 });
