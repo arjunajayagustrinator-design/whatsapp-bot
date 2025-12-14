@@ -7,3 +7,4 @@ admin.json
 .wwebjs_auth/
 .wwebjs_cache/
 projections/
+bot.lock
