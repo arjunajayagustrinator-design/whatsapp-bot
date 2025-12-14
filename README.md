@@ -1,3 +1,27 @@
+# 🚨 Troubleshooting: Bot Already Running (bot.lock)
+
+Jika Anda mendapatkan error:
+
+```
+ERROR: Bot already running! Remove bot.lock if not running.
+```
+
+Solusi:
+
+1. Pastikan tidak ada proses bot lain yang sedang berjalan.
+2. Hapus file `bot.lock` di folder project:
+	 - Windows: Hapus file `bot.lock` secara manual, atau jalankan perintah berikut di terminal:
+		 ```powershell
+		 if (Test-Path "bot.lock") { Remove-Item "bot.lock" -Force }
+		 ```
+	 - Linux/Mac: Jalankan:
+		 ```bash
+		 rm -f bot.lock
+		 ```
+3. Jalankan kembali bot dengan `npm start`.
+
+File `bot.lock` digunakan untuk mencegah bot berjalan ganda. File ini akan otomatis terhapus saat bot dimatikan dengan benar. Jika bot crash atau keluar paksa, Anda perlu menghapus file ini secara manual sebelum menjalankan ulang bot.
+
 # WhatsApp Bot
 
 Bot WhatsApp dengan fitur pembuatan sticker dan integrasi AI.

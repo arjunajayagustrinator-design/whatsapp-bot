@@ -96,12 +96,20 @@ client.on('qr', (qr) => {
     console.log(`⚠️ QR event #${qrCount} - possible duplicate, ignoring`);
     return;
   }
-  
-  console.log('\n📱 Scan QR Code:');
-  qrcodeTerminal.generate(qr, { small: true });
-  
-  if (process.env.RAILWAY_ENVIRONMENT) {
-    qrcode.toFile('qr.png', qr);
+
+  // Always generate data:image for Railway or headless
+  qrcode.toDataURL(qr, (err, url) => {
+    if (err) {
+      console.error('❌ Failed to generate QR data URL:', err);
+    } else {
+      console.log('\n📱 Scan QR Code (data:image):');
+      console.log(url); // This is a data:image/png;base64,...
+    }
+  });
+
+  // Still show terminal QR for local/dev
+  if (!process.env.RAILWAY_ENVIRONMENT) {
+    qrcodeTerminal.generate(qr, { small: true });
   }
 });
 
@@ -415,6 +423,43 @@ process.on('uncaughtException', (error) => {
     cleanup();
     process.exit(1);
   }
+});
+
+
+// === AUTO MESSAGE SETIAP 10 MENIT ===
+const AUTO_MESSAGE_INTERVAL = 10 * 60 * 1000; // 10 menit
+let autoMessageInterval = null;
+
+function startAutoMessage() {
+  if (autoMessageInterval) return;
+  autoMessageInterval = setInterval(async () => {
+    if (!isReady) return;
+    const data = loadAdminData();
+    if (data.owner) {
+      try {
+        await client.sendMessage(data.owner, '⏰ Pesan otomatis: Bot aktif (' + new Date().toLocaleTimeString() + ')');
+        console.log('✅ Auto message sent to owner');
+      } catch (err) {
+        console.log('⚠️ Failed to send auto message:', err.message);
+      }
+    }
+  }, AUTO_MESSAGE_INTERVAL);
+}
+
+client.on('ready', () => {
+  // ...existing code...
+  isReady = true;
+  console.log('\n============================================');
+  console.log('✅ Bot READY!');
+  console.log('   Name:', client.info.pushname || 'N/A');
+  console.log('   Number:', client.info.wid.user);
+  console.log('============================================\n');
+  setTimeout(() => {
+    client.sendMessage(client.info.wid._serialized, '🤖 Bot started successfully!')
+      .then(() => console.log('✅ Self-message sent (connection stabilized)'))
+      .catch(err => console.log('⚠️ Self-message failed:', err.message));
+  }, 3000);
+  startAutoMessage();
 });
 
 // Web server
