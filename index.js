@@ -1,331 +1,458 @@
 require('dotenv').config();
-const { Client } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcodeTerminal = require('qrcode-terminal');
 const qrcode = require('qrcode');
 const axios = require('axios');
 const fs = require('fs');
 const express = require('express');
-const cron = require('node-cron');
 
-const SESSION_FILE_PATH = './session.json';
-let sessionCfg;
-if (fs.existsSync(SESSION_FILE_PATH)) {
-  sessionCfg = require(SESSION_FILE_PATH);
+// Singleton lock
+const LOCK_FILE = './bot.lock';
+if (fs.existsSync(LOCK_FILE)) {
+  console.error('ERROR: Bot already running! Remove bot.lock if not running.');
+  process.exit(1);
 }
+fs.writeFileSync(LOCK_FILE, process.pid.toString());
 
+const cleanup = () => {
+  try { 
+    if (fs.existsSync(LOCK_FILE)) fs.unlinkSync(LOCK_FILE); 
+  } catch {}
+};
+
+process.on('exit', cleanup);
+process.on('SIGINT', () => {
+  console.log('\n⚠️ Shutting down...');
+  cleanup();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  console.log('\n⚠️ Shutting down...');
+  cleanup();
+  process.exit(0);
+});
+
+// Client with FIXED configuration for stability
 const client = new Client({
-  session: sessionCfg,
+  authStrategy: new LocalAuth({
+    clientId: 'whatsapp-bot',
+    dataPath: './.wwebjs_auth'
+  }),
   puppeteer: {
-    headless: true, // Set to true for containerized environments without display
+    headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-extensions',
-      '--disable-gpu',
-      '--disable-infobars',
-      '--start-maximized'
-    ]
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu'
+    ],
+    // PENTING: Increase timeout untuk mencegah premature logout
+    timeout: 0
+  },
+  // SOLUSI: Gunakan web version cache untuk stabilitas
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   }
 });
 
-// Store conversation history per user
+let isReady = false;
 const conversationHistory = new Map();
-const MAX_HISTORY = 10; // Limit to last 10 messages per user
+const MAX_HISTORY = 10;
+
+// Admin management
+const ADMIN_FILE = './admin.json';
+function loadAdminData() {
+  if (!fs.existsSync(ADMIN_FILE)) {
+    fs.writeFileSync(ADMIN_FILE, JSON.stringify({ owner: '', admins: [] }, null, 2));
+  }
+  return JSON.parse(fs.readFileSync(ADMIN_FILE));
+}
+function saveAdminData(data) {
+  fs.writeFileSync(ADMIN_FILE, JSON.stringify(data, null, 2));
+}
+function isOwner(waId) {
+  const data = loadAdminData();
+  return String(data.owner).trim() === String(waId).trim();
+}
+function isAdmin(waId) {
+  const data = loadAdminData();
+  const normalizedId = String(waId).trim();
+  return isOwner(normalizedId) || data.admins.some(admin => String(admin).trim() === normalizedId);
+}
+
+// Event handlers dengan DEBOUNCE untuk mencegah duplikasi
+let qrCount = 0;
+let authCount = 0;
+let readyCount = 0;
 
 client.on('qr', (qr) => {
+  qrCount++;
+  if (qrCount > 1) {
+    console.log(`⚠️ QR event #${qrCount} - possible duplicate, ignoring`);
+    return;
+  }
+  
+  console.log('\n📱 Scan QR Code:');
+  qrcodeTerminal.generate(qr, { small: true });
+  
   if (process.env.RAILWAY_ENVIRONMENT) {
-    qrcode.toFile('qr.png', qr, (err) => {
-      if (err) console.error('Error generating QR PNG:', err);
-      console.log('QR Code saved to qr.png');
-    });
-    qrcode.toDataURL(qr, (err, url) => {
-      if (err) console.error('Error generating QR URL:', err);
-      console.log('QR Code URL:', url);
-    });
-  } else {
-    qrcodeTerminal.generate(qr, { small: true });
+    qrcode.toFile('qr.png', qr);
   }
 });
-
-
 
 client.on('loading_screen', (percent, message) => {
-  console.log('Loading screen:', percent, message);
+  if (percent === 0 || percent === 50 || percent === 100) {
+    console.log(`⏳ Loading: ${percent}%`);
+  }
 });
 
-client.on('authenticated', (session) => {
-  console.log('Authenticated!');
-  if (session) {
-    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session));
-  }
+client.on('authenticated', () => {
+  authCount++;
+  if (authCount > 1) return;
+  console.log('✅ Authenticated');
 });
 
 client.on('ready', () => {
-  console.log('WhatsApp Bot is ready!');
-  // Start auto chat cron job every 10 minutes
-  cron.schedule('*/10 * * * *', () => {
-    if (client.info) {
-      client.sendMessage(client.info.wid._serialized, 'Auto keep-alive message');
-      console.log('Sent auto keep-alive message at', new Date().toISOString());
-    }
-  });
+  readyCount++;
+  if (readyCount > 1) return;
+  
+  isReady = true;
+  console.log('\n============================================');
+  console.log('✅ Bot READY!');
+  console.log('   Name:', client.info.pushname || 'N/A');
+  console.log('   Number:', client.info.wid.user);
+  console.log('============================================\n');
+  
+  // SOLUSI: Kirim pesan ke diri sendiri untuk "stabilkan" koneksi
+  setTimeout(() => {
+    client.sendMessage(client.info.wid._serialized, '🤖 Bot started successfully!')
+      .then(() => console.log('✅ Self-message sent (connection stabilized)'))
+      .catch(err => console.log('⚠️ Self-message failed:', err.message));
+  }, 3000);
 });
 
 client.on('disconnected', (reason) => {
-  console.log('Client was disconnected:', reason);
-  // Optionally, reinitialize after a delay
-  setTimeout(() => {
-    console.log('Reinitializing client...');
-    client.initialize();
-  }, 5000);
+  console.log('\n⚠️ DISCONNECTED:', reason);
+  
+  // Cek apakah ini adalah logout tak terduga
+  if (reason === 'LOGOUT' && isReady) {
+    console.log('\n💡 SOLUSI UNTUK LOGOUT TAK TERDUGA:');
+    console.log('1. Cek di HP: Settings > Linked Devices');
+    console.log('2. Hapus semua device yang ter-link');
+    console.log('3. Hapus session bot: rm -rf .wwebjs_auth');
+    console.log('4. Update whatsapp-web.js: npm install whatsapp-web.js@latest');
+    console.log('5. Restart bot dan scan ulang\n');
+    console.log('6. ALTERNATIF: Gunakan nomor WhatsApp berbeda khusus untuk bot\n');
+  }
+  
+  isReady = false;
+  cleanup();
+  process.exit(1);
 });
 
 client.on('auth_failure', (msg) => {
-  console.error('Authentication failure:', msg);
-  // Handle auth failure, perhaps reinitialize
-  setTimeout(() => {
-    console.log('Reinitializing client after auth failure...');
-    client.initialize();
-  }, 5000);
+  console.error('\n❌ Auth failed:', msg);
+  console.log('Solusi: rm -rf .wwebjs_auth && npm start\n');
+  cleanup();
+  process.exit(1);
 });
 
-// Menu command response
+// Tambahkan error handler untuk protocol errors
+client.on('change_state', state => {
+  console.log('State changed:', state);
+});
+
+// Menu
 const showMenu = async (msg) => {
-  const menuText = `
-╔════════════════════════════════════╗
-║     🤖 WHATSAPP BOT MENU 🤖      ║
-╚════════════════════════════════════╝
-
-📋 *DAFTAR PERINTAH:*
-
-🔤 *Perintah AI Chat*
-• \`.\` + pertanyaan → Tanya ke AI
-  Contoh: \`.apa itu Python?\`
-
-🎨 *Perintah Stiker*
-• \`/sticker\` → Buat stiker dari gambar
-  (balas gambar dengan /sticker)
-
-👥 *Perintah Grup*
-• \`/tagall [pesan]\` → Tag semua member
-  (Hanya untuk admin/owner)
-
-ℹ️ *Informasi*
-• \`/menu\` → Tampilkan menu ini
-• \`/info\` → Info tentang bot
-
-════════════════════════════════════
-💡 *Tips:* Gunakan perintah di atas untuk
-   menggunakan fitur bot dengan maksimal!
-════════════════════════════════════
-  `;
+  const menuText = [
+    '╔════════════════════════════════════╗',
+    '║     🤖 WHATSAPP BOT MENU 🤖      ║',
+    '╚════════════════════════════════════╝',
+    '',
+    '🔤 *AI Chat* → `.pertanyaan`',
+    '🎨 *Stiker* → `/sticker` (reply gambar)',
+    '👥 *Tag All* → `/hidetag pesan` (admin)',
+    '⚙️ *Admin* → `/setowner`, `/addadmin`, `/listadmin`',
+    'ℹ️ *Info* → `/menu`, `/info`',
+    '',
+    '════════════════════════════════════',
+  ].join('\n');
   msg.reply(menuText);
 };
 
-// Info command response
 const showInfo = async (msg) => {
-  const infoText = `
-╔════════════════════════════════════╗
-║      ℹ️  TENTANG BOT ℹ️           ║
-╚════════════════════════════════════╝
-
-🤖 *WhatsApp Bot v1.0*
-
-✨ *Fitur Utama:*
-✓ Chat dengan AI powered by GPT-3.5
-✓ Buat stiker dari gambar
-✓ Tag semua member di grup
-✓ Responsive & modern interface
-
-⚙️ *Teknologi:*
-• Whatsapp-web.js
-• OpenRouter API
-• Node.js
-
-📧 *Butuh bantuan?*
-Ketik \`/menu\` untuk melihat daftar perintah!
-
-════════════════════════════════════
-Made with ❤️ for WhatsApp users
-════════════════════════════════════
-  `;
+  const infoText = [
+    '╔════════════════════════════════════╗',
+    '║      ℹ️  TENTANG BOT ℹ️           ║',
+    '╚════════════════════════════════════╝',
+    '',
+    '🤖 WhatsApp Bot v2.2',
+    '',
+    '✨ Fitur: AI Chat, Stiker, Group Tag',
+    '⚙️ Tech: whatsapp-web.js + GPT-3.5',
+    '',
+    '📧 Help: /menu',
+    '════════════════════════════════════',
+  ].join('\n');
   msg.reply(infoText);
 };
 
+// Message handler
 client.on('message', async (msg) => {
-  console.log(`Received message from ${msg.from}: ${msg.body || 'media'}`);
-  // Ignore messages from the bot itself
-  if (msg.from === client.info.wid._serialized) return;
+  try {
+    if (!isReady || msg.from === client.info.wid._serialized) return;
 
-  // Handle menu command
-  if (msg.body === '/menu') {
-    await showMenu(msg);
-    return;
-  }
+    const msgBody = msg.body || '';
+    
+    // Admin commands
+    if (msgBody === '/setowner') {
+      const senderWaId = msg.author || msg.from;
+      const data = loadAdminData();
+      if (data.owner) {
+        msg.reply('❌ Owner sudah terdaftar.');
+      } else {
+        data.owner = senderWaId;
+        saveAdminData(data);
+        msg.reply(`✅ Anda owner bot!\n🔍 ${senderWaId}`);
+      }
+      return;
+    }
 
-  // Handle info command
-  if (msg.body === '/info') {
-    await showInfo(msg);
-    return;
-  }
+    if (msgBody.startsWith('/addadmin ')) {
+      const senderWaId = msg.author || msg.from;
+      if (!isOwner(senderWaId)) {
+        msg.reply('❌ Hanya owner.');
+        return;
+      }
+      let adminId = msgBody.split(' ')[1];
+      if (/^\d+$/.test(adminId)) adminId += '@c.us';
+      const data = loadAdminData();
+      if (!data.admins.includes(adminId)) {
+        data.admins.push(adminId);
+        saveAdminData(data);
+        msg.reply(`✅ Admin added: ${adminId}`);
+      } else {
+        msg.reply('⚠️ Already admin.');
+      }
+      return;
+    }
 
-  // Handle AI responses only if message starts with '.'
-  if (msg.body && msg.body.startsWith('.')) {
-    try {
+    if (msgBody.startsWith('/deladmin ')) {
+      const senderWaId = msg.author || msg.from;
+      if (!isOwner(senderWaId)) {
+        msg.reply('❌ Hanya owner.');
+        return;
+      }
+      let adminId = msgBody.split(' ')[1];
+      if (/^\d+$/.test(adminId)) adminId += '@c.us';
+      const data = loadAdminData();
+      data.admins = data.admins.filter(a => a !== adminId);
+      saveAdminData(data);
+      msg.reply(`✅ Admin removed: ${adminId}`);
+      return;
+    }
+
+    if (msgBody === '/listadmin') {
+      const data = loadAdminData();
+      const senderWaId = msg.author || msg.from;
+      let text = '📋 *ADMIN*\n\n';
+      text += `👑 Owner: ${data.owner || 'None'}\n\n`;
+      text += '👥 Admin:\n';
+      if (data.admins.length > 0) {
+        data.admins.forEach((a, i) => text += `${i + 1}. ${a}\n`);
+      } else {
+        text += 'None\n';
+      }
+      text += `\n🔍 Your ID: ${senderWaId}`;
+      msg.reply(text);
+      return;
+    }
+
+    // Hidetag
+    if (msgBody.startsWith('/hidetag')) {
+      const chat = await msg.getChat();
+      if (!chat.isGroup) {
+        msg.reply('❌ Group only.');
+        return;
+      }
+      
+      let senderWaId = msg.author || msg.from;
+      let realWaId = senderWaId;
+      
+      if (!senderWaId.endsWith('@c.us')) {
+        const senderNumber = senderWaId.split('@')[0];
+        const found = chat.participants.find(p => {
+          const pNumber = p.id._serialized.split('@')[0];
+          return pNumber === senderNumber && p.id._serialized.endsWith('@c.us');
+        });
+        if (found) realWaId = found.id._serialized;
+      }
+      
+      if (!isAdmin(realWaId)) {
+        msg.reply(`❌ Admin only.\n🔍 ${realWaId}`);
+        return;
+      }
+      
+      let text = msgBody.slice(8).trim() || '👋 Hello!';
+      const mentions = chat.participants.map(p => p.id._serialized);
+      
+      await chat.sendMessage(text, { mentions });
+      msg.reply(`✅ Tagged ${mentions.length} members!`);
+      return;
+    }
+
+    // Info
+    if (msgBody === '/menu') {
+      await showMenu(msg);
+      return;
+    }
+    if (msgBody === '/info') {
+      await showInfo(msg);
+      return;
+    }
+
+    // AI Chat
+    if (msgBody.startsWith('.')) {
       const userId = msg.from;
       if (!conversationHistory.has(userId)) {
         conversationHistory.set(userId, []);
       }
       const history = conversationHistory.get(userId);
-
-      // Remove the leading '.' from the message
-      const userMessage = msg.body.slice(1);
-
-      // Add user message to history
-      history.push({ role: 'user', content: userMessage });
-
-      // Limit history
-      if (history.length > MAX_HISTORY) {
-        history.shift();
+      const userMessage = msgBody.slice(1).trim();
+      
+      if (!userMessage) {
+        msg.reply('💬 Example: .what is nodejs?');
+        return;
       }
 
-      console.log('Sending to AI...');
+      history.push({ role: 'user', content: userMessage });
+      if (history.length > MAX_HISTORY * 2) history.splice(0, 2);
+
       const apiKey = process.env.OPENROUTER_API_KEY;
       if (!apiKey) {
-        throw new Error('OPENROUTER_API_KEY environment variable is not set');
+        msg.reply('❌ API key not set.');
+        return;
       }
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: 'openai/gpt-3.5-turbo',
-        messages: history
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+      
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        { model: 'openai/gpt-3.5-turbo', messages: history },
+        { 
+          headers: { 
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
         }
-      });
+      );
+      
       const reply = response.data.choices[0].message.content;
-      console.log('AI response:', reply);
-
-      // Add AI response to history
       history.push({ role: 'assistant', content: reply });
-
-      // Limit again
-      if (history.length > MAX_HISTORY) {
-        history.shift();
-      }
-
+      if (history.length > MAX_HISTORY * 2) history.splice(0, 2);
+      
       msg.reply(reply);
-    } catch (error) {
-      console.error('Error with AI response:', error);
-      msg.reply('Sorry, I encountered an error processing your message.');
+      return;
     }
-  }
-  // Handle sticker creation only if message is '/sticker' and has quoted message
-  else if (msg.body === '/sticker' && msg.hasQuotedMsg) {
-    try {
+
+    // Sticker
+    if (msgBody === '/sticker') {
+      if (!msg.hasQuotedMsg) {
+        msg.reply('⚠️ Reply image with /sticker');
+        return;
+      }
+      
       const quotedMsg = await msg.getQuotedMessage();
-      if (quotedMsg.hasMedia) {
-        const media = await quotedMsg.downloadMedia();
-        if (media.mimetype.startsWith('image/')) {
-          console.log('Creating sticker from quoted image...');
-          msg.reply('⏳ Sedang membuat stiker...');
-          await client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
-          console.log('Sticker sent.');
-          msg.reply('✅ Stiker berhasil dibuat! 🎨');
-        } else {
-          msg.reply('❌ Pesan yang dikutip bukan gambar. Silakan balas gambar dengan /sticker');
-        }
-      } else {
-        msg.reply('❌ Pesan yang dikutip tidak mengandung media.');
-      }
-    } catch (error) {
-      console.error('Error creating sticker:', error);
-      msg.reply('❌ Maaf, terjadi kesalahan saat membuat stiker.');
-    }
-  }
-  // Tag all members in a group: usage '/tagall [optional message]'
-  else if (msg.body && msg.body.startsWith('/tagall')) {
-    try {
-      const chat = await msg.getChat();
-      if (!chat.isGroup) {
-        msg.reply('❌ Perintah ini hanya bisa digunakan di grup.');
+      if (!quotedMsg.hasMedia) {
+        msg.reply('❌ Not media.');
         return;
       }
-
-      // Cek admin - gunakan msg.from untuk mencari participant
-      const authorId = msg.from;
-      const senderParticipant = chat.participants.find(p => p.id._serialized === authorId);
       
-      console.log('Author ID:', authorId);
-      console.log('Sender Participant:', senderParticipant);
-      console.log('Is Admin:', senderParticipant?.isAdmin);
-      console.log('Is Super Admin:', senderParticipant?.isSuperAdmin);
-      
-      let isAdmin = false;
-      if (senderParticipant) {
-        isAdmin = senderParticipant.isAdmin === true || senderParticipant.isSuperAdmin === true;
-      }
-      
-      if (!isAdmin) {
-        msg.reply('❌ Hanya admin atau owner grup yang dapat menggunakan perintah ini.');
+      const media = await quotedMsg.downloadMedia();
+      if (!media.mimetype.startsWith('image/')) {
+        msg.reply('❌ Image only.');
         return;
       }
-
-      const parts = msg.body.split(' ');
-      const text = parts.slice(1).join(' ') || '👋 Halo semua member!';
-
-      // Build mentions list - gunakan participant langsung tanpa getContactById
-      const mentions = [];
-      for (const participant of chat.participants) {
-        try {
-          const contact = await client.getContactById(participant.id._serialized);
-          mentions.push(contact);
-        } catch (err) {
-          console.warn('Gagal mengambil kontak untuk', participant.id._serialized, ':', err.message);
-          // Fallback: tambahkan participant ID langsung
-          mentions.push(participant.id._serialized);
-        }
-      }
-
-      const finalMessage = `📢 *PENGUMUMAN:*\n\n${text}`;
-      await chat.sendMessage(finalMessage, { mentions });
-      msg.reply(`✅ Berhasil menandai ${mentions.length} anggota grup! 👥`);
-      console.log('Tagall command executed successfully for', mentions.length, 'members');
-    } catch (err) {
-      console.error('Error running tagall:', err);
-      msg.reply('❌ Terjadi kesalahan saat menandai semua anggota: ' + err.message);
+      
+      msg.reply('⏳ Creating...');
+      await client.sendMessage(msg.from, media, { 
+        sendMediaAsSticker: true,
+        stickerAuthor: 'Bot',
+        stickerName: 'Sticker'
+      });
+      return;
     }
+
+    // Unknown command
+    if (msgBody.startsWith('/')) {
+      msg.reply('❓ Unknown. Type /menu');
+    }
+
+  } catch (err) {
+    console.error('❌ Error:', err.message);
+    try { 
+      await msg.reply('❌ Error: ' + err.message); 
+    } catch {}
   }
-  // Show error for unknown commands
-  else if (msg.body && msg.body.startsWith('/')) {
-    msg.reply('❌ Perintah tidak dikenal. Ketik `/menu` untuk melihat daftar perintah yang tersedia.');
-  }
-  // Ignore other messages
 });
 
+// Error handlers
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // If it's a ProtocolError, reinitialize
-  if (reason && reason.message && reason.message.includes('Execution context was destroyed')) {
-    console.log('ProtocolError detected, reinitializing client...');
-    setTimeout(() => {
-      client.initialize();
-    }, 5000);
+  console.error('❌ Unhandled Rejection:', reason);
+  // Jangan exit, biarkan bot terus berjalan
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Jika error critical, baru exit
+  if (error.message && error.message.includes('ECONNREFUSED')) {
+    console.log('⚠️ Connection error, trying to continue...');
+  } else {
+    cleanup();
+    process.exit(1);
   }
 });
 
-// Express server for keep-alive
+// Web server
 const app = express();
-app.get("/", (req, res) => {
-  console.log('Ping received at', new Date().toISOString());
-  res.send("Bot aktif 🚀");
-});
-app.get("/status", (req, res) => {
-  const status = client.info ? 'ready' : 'initializing';
-  res.json({ status, uptime: process.uptime() });
-});
-app.listen(3000, () => console.log("Keep-alive server aktif di port 3000"));
 
-console.log('Initializing client...');
-client.initialize();
+app.get("/", (req, res) => {
+  res.send(`Bot: ${isReady ? '✅ Active' : '⏳ Starting'}`);
+});
+
+app.get("/status", (req, res) => {
+  res.json({ 
+    status: isReady ? 'ready' : 'starting',
+    uptime: Math.floor(process.uptime()),
+    bot: client.info ? {
+      name: client.info.pushname,
+      number: client.info.wid.user
+    } : null
+  });
+});
+
+app.get("/restart", (req, res) => {
+  res.send('⚠️ Manual restart required. Stop and run: npm start');
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Server: http://localhost:${PORT}`);
+});
+
+// Initialize
+console.log('\n🚀 Starting bot...\n');
+console.log('💡 TIPS:');
+console.log('   - Pastikan WhatsApp di HP aktif dan ada koneksi internet');
+console.log('   - Jangan login bot dengan nomor yang sudah dipakai device lain');
+console.log('   - Jika logout terus, coba nomor WhatsApp berbeda\n');
+
+client.initialize().catch(err => {
+  console.error('❌ Init failed:', err);
+  cleanup();
+  process.exit(1);
+});
