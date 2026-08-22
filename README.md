@@ -33,6 +33,28 @@ Bot WhatsApp dengan fitur pembuatan sticker dan integrasi AI.
 - Keep-alive server untuk mencegah sleep
 - Auto chat setiap 10 menit untuk menjaga koneksi aktif
 - Perintah `.tagall [pesan opsional]` untuk menandai semua anggota grup (hanya admin grup)
+- Riwayat AI persisten di `data/conversation-history.json` dan rate limit per user
+- `/reset`, `/clear`, `/ping`, `/translate`, dan `/stickerimage`
+- Moderasi grup: `/kick`, `/promote`, `/demote`, `/mute`, `/antilink on|off`
+- Welcome/goodbye message, anti-call, blacklist, broadcast, dan restart owner
+
+## Konfigurasi tambahan
+
+- `AI_RATE_LIMIT` — jumlah chat AI per user (default 5)
+- `AI_RATE_WINDOW_MS` — jendela rate limit dalam milidetik (default 1 jam)
+- `AI_IN_GROUP=true` — izinkan pesan biasa di grup diproses AI; default hanya chat pribadi
+
+Data runtime disimpan di folder `data/`. Sertakan folder ini dalam volume/deployment bila
+ingin riwayat chat, model `/setmodel`, blacklist, dan pengaturan grup tetap ada setelah restart.
+
+Downloader membutuhkan executable `yt-dlp` di `PATH`. Contoh Windows:
+
+```powershell
+winget install yt-dlp.yt-dlp
+```
+
+Setelah instalasi, restart bot. Perintah yang tersedia adalah `/download URL` untuk video
+dan `/ytmp3 URL` untuk audio. Batas ukuran file adalah 30 MB.
 
 ## Instalasi
 
