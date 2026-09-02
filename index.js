@@ -10,6 +10,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const express = require('express');
 const { createCanvas, loadImage } = require('canvas');
+const games = require('./games');
 const execFileAsync = promisify(execFile);
 
 const DATA_DIR = './data';
@@ -173,6 +174,22 @@ function extractWaNumber(waId) {
 
 function sameWaUser(a, b) {
   return extractWaNumber(a) !== '' && extractWaNumber(a) === extractWaNumber(b);
+}
+
+// Nama tampilan untuk papan skor game. notifyName sudah ikut di payload pesan,
+// jadi getContactById hanya dipakai sebagai cadangan dan hasilnya di-cache.
+const nameCache = new Map();
+async function resolveName(msg, waId) {
+  const notify = msg._data?.notifyName;
+  if (notify) { nameCache.set(waId, notify); return notify; }
+  if (nameCache.has(waId)) return nameCache.get(waId);
+  let name = extractWaNumber(waId);
+  try {
+    const contact = await client.getContactById(waId);
+    name = contact.pushname || contact.name || name;
+  } catch {}
+  nameCache.set(waId, name);
+  return name;
 }
 
 // ─── Admin Management ──────────────────────────────────────────────────────────
@@ -929,6 +946,25 @@ const handleMessage = async (msg) => {
       const currentModel = activeModel();
       msg.reply(`Model aktif:\n\`${currentModel}\`\n\nFallback list:\n${MODEL_FALLBACK.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nVision models:\n${VISION_MODELS.join('\n')}`);
       return;
+    }
+
+    // ─── Game Center ──────────────────────────────────────────────────────────
+    // Ditaruh sebelum blok AI supaya gerakan game (angka, huruf, wasd) tidak
+    // ikut dikirim ke AI. Router mengembalikan false kalau pesannya bukan
+    // perintah/gerakan game, jadi alur bot yang lain tetap jalan seperti biasa.
+    try {
+      const handledByGame = await games.handleMessage({
+        msg,
+        client,
+        body: msgBody,
+        sender: senderWaId,
+        senderName: await resolveName(msg, senderWaId),
+        chatId: msg.from,
+        isGroup: !!currentGroupId
+      });
+      if (handledByGame) return;
+    } catch (err) {
+      logError('Game handler error', err);
     }
 
     // ─── AI Chat via OpenRouter (support baca gambar) ─────────────────────────

@@ -42,5 +42,23 @@
       "role": "assistant",
       "content": "Waduh, maksudnya gimana nih? 😂\n\nApa maksud kamu bentuk profil Aruma yang bulat, atau ada hal lain yang lagi kamu bahas? Coba kasih tahu Aruma biar aku nggak bingung! 🤭✨"
     }
+  ],
+  "120363298097568232@g.us": [
+    {
+      "role": "user",
+      "content": "Tanggapan"
+    },
+    {
+      "role": "assistant",
+      "content": "Halo! Ada yang bisa Aruma bantu? 😊\n\nSepertinya pesan kamu terpotong. Apakah kamu ingin meminta tanggapan Aruma mengenai sesuatu, atau ada hal lain yang ingin kamu tanyakan?\n\nSilakan tuliskan detailnya ya, Aruma siap membantu! ✨"
+    },
+    {
+      "role": "user",
+      "content": "Tanggapan"
+    },
+    {
+      "role": "assistant",
+      "content": "Sepertinya kamu mengirimkan kata yang sama kembali. 😊\n\nApakah kamu ingin Aruma memberikan **tanggapan** terhadap suatu teks, berita, situasi, atau pendapat tertentu?\n\nSilakan kirimkan apa yang ingin kamu bahas, dan Aruma akan memberikan tanggapan dengan senang hati. Aruma tunggu ya! ✨"
+    }
   ]
 }
