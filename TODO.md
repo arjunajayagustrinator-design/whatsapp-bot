@@ -13,3 +13,8 @@
 - [x] Create README.md with deployment and keep-alive instructions
 - [x] Create .env file with API key
 - [x] Add dotenv for environment variable loading
+- [x] Tambah Game Center modular di folder `games/` (registry, session store, papan skor)
+- [x] Implementasi 12 mini-game: Tetris, Tic-Tac-Toe, Pac-Man, Hangman, Kuis, Mafia, Sambung Kata, Snake, 2048, Minesweeper, Tebak Kata, Kuis Matematika
+- [x] Router game dipasang sebelum blok AI agar gerakan tidak dikirim ke OpenRouter
+- [x] Papan skor persisten di `data/game-scores.json` (`/skor`, `/statgame`)
+- [x] Aksi malam Mafia lewat DM dengan routing balik ke grup

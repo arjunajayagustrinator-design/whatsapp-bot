@@ -1,6 +1,7 @@
 // Penyimpanan sesi game (in-memory) dan papan skor (persisten di data/).
 const fs = require('fs');
 const path = require('path');
+const { sameUser } = require('./util');
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SCORE_FILE = path.join(DATA_DIR, 'game-scores.json');
@@ -91,10 +92,18 @@ function sweepSessions(onExpire) {
 
 function routeDm(userId, chatId) { dmRoutes.set(userId, chatId); }
 function clearDmRoute(userId) { dmRoutes.delete(userId); }
+
 function dmTarget(userId) {
-  const chatId = dmRoutes.get(userId);
+  // Cocokkan ID persis dulu, lalu jatuh ke pencocokan nomor: ID orang yang
+  // sama bisa berbeda domain antara grup (@lid) dan chat pribadi (@c.us).
+  let chatId = dmRoutes.get(userId);
+  if (!chatId) {
+    for (const [routedId, target] of dmRoutes) {
+      if (sameUser(routedId, userId)) { chatId = target; break; }
+    }
+  }
   if (!chatId) return null;
-  if (!sessions.has(chatId)) { dmRoutes.delete(userId); return null; }
+  if (!sessions.has(chatId)) return null;
   return chatId;
 }
 

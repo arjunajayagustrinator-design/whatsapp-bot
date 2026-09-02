@@ -1,6 +1,6 @@
 // Mafia: game grup dengan fase malam (aksi lewat DM) dan fase siang (voting).
 // Aksi rahasia dikirim ke chat pribadi bot, hasilnya diumumkan ke grup.
-const { shuffle } = require('./util');
+const { shuffle, sameUser } = require('./util');
 
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
@@ -18,7 +18,7 @@ const alive = state => state.players.filter(p => p.alive);
 const aliveMafia = state => alive(state).filter(p => p.role === 'mafia');
 const aliveTown = state => alive(state).filter(p => p.role !== 'mafia');
 const byNumber = (state, n) => state.players.find(p => p.number === Number(n));
-const findPlayer = (state, waId) => state.players.find(p => p.id === waId);
+const findPlayer = (state, waId) => state.players.find(p => sameUser(p.id, waId));
 
 function roster(state, showDead = true) {
   return state.players
@@ -330,7 +330,8 @@ module.exports = {
       reply = `🕵️ Hasil penyelidikan: *${target.name}* adalah ${target.role === 'mafia' ? '🔪 *MAFIA*' : '✅ bukan mafia'}.`;
     }
 
-    state.night.done[ctx.sender] = true;
+    // Dikunci pakai ID kanonik pemain agar cocok dengan daftar 'needed'.
+    state.night.done[player.id] = true;
 
     // Kalau semua peran khusus sudah beraksi, malam langsung diselesaikan.
     const pending = state.night.needed.filter(id => !state.night.done[id] && findPlayer(state, id)?.alive);

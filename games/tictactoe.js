@@ -123,13 +123,23 @@ module.exports = {
     const index = Number(move) - 1;
 
     if (state.mode === 'pvp') {
+      let justJoined = false;
       if (!state.players.O && ctx.sender !== state.players.X) {
         state.players.O = ctx.sender;
         state.names.O = ctx.senderName;
+        justJoined = true;
       }
       const symbol = Object.keys(state.players).find(key => state.players[key] === ctx.sender);
       if (!symbol) return { text: '⏳ Kursi pemain sudah penuh. Tunggu game ini selesai ya.' };
-      if (symbol !== state.turn) return { text: `⏳ Belum giliranmu. Sekarang giliran *${state.names[state.turn]}*.` };
+      if (symbol !== state.turn) {
+        // Pemain kedua bergabung lewat gerakan pertamanya, jadi keanggotaannya
+        // perlu dikonfirmasi walau gerakannya sendiri belum bisa dijalankan.
+        return {
+          text: justJoined
+            ? `✅ *${ctx.senderName}* bergabung sebagai ⭕!\n⏳ Menunggu giliran *${state.names.X}* (❌) dulu.`
+            : `⏳ Belum giliranmu. Sekarang giliran *${state.names[state.turn]}*.`
+        };
+      }
     } else if (ctx.sender !== state.players.X) {
       return { text: '⏳ Game ini dimulai orang lain. Ketik `/xo` di chat pribadi untuk main sendiri.' };
     }

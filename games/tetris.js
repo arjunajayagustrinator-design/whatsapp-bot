@@ -102,7 +102,7 @@ function lock(state) {
 
 function previewOf(key) {
   const { cells, color } = PIECES[key];
-  return cells.map(row => row.map(cell => (cell ? color : '▪️')).join('')).join('\n');
+  return cells.map(row => row.map(cell => (cell ? color : '⬛')).join('')).join('\n');
 }
 
 function render(state, note) {

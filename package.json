@@ -1,10 +1,11 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot with sticker creation and AI integration",
+  "description": "WhatsApp bot with sticker creation, AI integration, and a 12-game Game Center",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node test/games.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

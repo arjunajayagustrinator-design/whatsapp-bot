@@ -60,6 +60,16 @@ function displayName(waId) {
   return waId ? waId.split('@')[0] : '?';
 }
 
+// WhatsApp kadang memakai domain berbeda untuk orang yang sama (@c.us di chat
+// pribadi vs @lid di grup), jadi perbandingan identitas pakai nomornya saja.
+function waNumber(waId) {
+  return waId ? String(waId).split('@')[0].trim() : '';
+}
+
+function sameUser(a, b) {
+  return waNumber(a) !== '' && waNumber(a) === waNumber(b);
+}
+
 // Waktu bermain dalam format "1m 20d".
 function duration(ms) {
   const seconds = Math.round(ms / 1000);
@@ -69,5 +79,5 @@ function duration(ms) {
 
 module.exports = {
   mono, numberEmoji, randInt, pick, shuffle, pad, grid,
-  emptyBoard, header, bar, displayName, duration
+  emptyBoard, header, bar, displayName, duration, waNumber, sameUser
 };
